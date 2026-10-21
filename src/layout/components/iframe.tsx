@@ -252,7 +252,7 @@ export function Iframe({ iframeRef, srcOverride = null, borderTint = null }: Ifr
   const showIframeError = !remoteMode && harness.showIframeError
   const documentWaiting = !remoteMode && mounted && !harness.iframeAlive && !showIframeError && !appearancePending
   const preloadPending = activePreload !== null && !activePreload.applied
-  const iframeHidden = appearancePending || preloadPending || remoteLoading || harness.showIframeError
+  const iframeHidden = appearancePending || preloadPending || remoteLoading || showIframeError
   const branch = !mounted ? 'service-wait' : showIframeError ? 'iframe-error' : remoteLoading ? 'remote-loading' : appearancePending ? 'appearance-wait' : documentWaiting ? 'document-wait' : remoteMode ? 'remote-frame' : 'local-frame'
   useWatch([branch, harness.status, remoteMode, mounted, harness.serviceHealthy, harness.serviceRunning, harness.iframeKey, harness.iframeLoaded, harness.iframeAlive, harness.iframeError, harness.startupPhase, harness.busyAction, appearancePending, documentWaiting, iframeHidden], () => {
     console.warn('[Iframe] view', {
@@ -750,7 +750,7 @@ export function Iframe({ iframeRef, srcOverride = null, borderTint = null }: Ifr
       </If>
 
       {/* 预加载静态页/外观握手期间用同构 Loadable 盖住，避免露出白底 */}
-      <If cond={!remoteMode && mounted && iframeHidden && !harness.showIframeError}>
+      <If cond={!remoteMode && mounted && iframeHidden && !showIframeError}>
         <div className="absolute inset-0 z-[1]">
           <Loadable subtitle={t(harness.startupStatusKey)} />
         </div>
