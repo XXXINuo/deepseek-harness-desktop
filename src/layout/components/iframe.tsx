@@ -248,10 +248,11 @@ export function Iframe({ iframeRef, srcOverride = null, borderTint = null }: Ifr
   const post = useIframePost(iframeRef)
   // 握手兜底：帧内接收器异常时不能让 iframe 永久藏住，超时后按「未确认」直接揭开。
   const appearancePending = translucent && bootFrame !== frameKey
-  const iframeHidden = appearancePending || remoteLoading || harness.showIframeError
   const mounted = remoteMode || activePreload !== null || harness.serviceHealthy
   const showIframeError = !remoteMode && harness.showIframeError
   const documentWaiting = !remoteMode && mounted && !harness.iframeAlive && !showIframeError && !appearancePending
+  const preloadPending = activePreload !== null && !activePreload.applied
+  const iframeHidden = appearancePending || preloadPending || remoteLoading || harness.showIframeError
   const branch = !mounted ? 'service-wait' : showIframeError ? 'iframe-error' : remoteLoading ? 'remote-loading' : appearancePending ? 'appearance-wait' : documentWaiting ? 'document-wait' : remoteMode ? 'remote-frame' : 'local-frame'
   useWatch([branch, harness.status, remoteMode, mounted, harness.serviceHealthy, harness.serviceRunning, harness.iframeKey, harness.iframeLoaded, harness.iframeAlive, harness.iframeError, harness.startupPhase, harness.busyAction, appearancePending, documentWaiting, iframeHidden], () => {
     console.warn('[Iframe] view', {
@@ -734,7 +735,7 @@ export function Iframe({ iframeRef, srcOverride = null, borderTint = null }: Ifr
           // 未确认收到启动期外观前先藏起来：帧内 boot 页（HARNESS + Loading plugins…）
           // 会先按不透明画一帧，露出那一下比等待更刺眼。上面的 Loadable 与之逐项同构，
           // 揭开时视觉无跳变，且有 4s 兜底不会永久藏住。
-          style={{ visibility: appearancePending || remoteLoading || harness.showIframeError ? 'hidden' : 'visible' }}
+          style={{ visibility: iframeHidden ? 'hidden' : 'visible' }}
           src={frameSrc}
           allow="accelerometer; ambient-light-sensor; autoplay; battery; camera; clipboard-read; clipboard-write; display-capture; document-domain; encrypted-media; fullscreen; gamepad; geolocation; gyroscope; hid; idle-detection; keyboard-map; magnetometer; microphone; midi; payment; picture-in-picture; publickey-credentials-get; screen-wake-lock; serial; speaker-selection; usb; web-share; xr-spatial-tracking"
           sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-modals allow-downloads allow-storage-access-by-user-activation"
@@ -746,6 +747,13 @@ export function Iframe({ iframeRef, srcOverride = null, borderTint = null }: Ifr
           onError={store.harness.markIframeError}
           title={t('app.open_editor')}
         />
+      </If>
+
+      {/* 预加载静态页/外观握手期间用同构 Loadable 盖住，避免露出白底 */}
+      <If cond={!remoteMode && mounted && iframeHidden && !harness.showIframeError}>
+        <div className="absolute inset-0 z-[1]">
+          <Loadable subtitle={t(harness.startupStatusKey)} />
+        </div>
       </If>
 
       {/* 远端机器勾选「边框着色」时，用标识色给内容区描边：当前处于远端一眼可辨 */}
