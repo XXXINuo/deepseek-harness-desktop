@@ -103,6 +103,7 @@ it('preloads before health, hands live boot to the same frame, and falls back on
     window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'http://127.0.0.1:3081', data: { type: 7 } }))
   })
   expect(frame.getAttribute('src')).toBe(src)
+  expect(frame.style.visibility).toBe('hidden')
   expect(store.harness.serviceHealthy).toBe(false)
   expect(store.harness.iframeAlive).toBe(false)
   async function report(type: string, origin = 'http://127.0.0.1:3081', id = '7') {
@@ -124,6 +125,7 @@ it('preloads before health, hands live boot to the same frame, and falls back on
   expect(post).toHaveBeenCalledWith({ source: 'dsh-desktop', type: 'dsh://frontend-preload:boot', id: '7', html: store.harness.frontendBootHtml }, 'http://127.0.0.1:3081')
   expect(store.harness.iframeAlive).toBe(false)
   await report('dsh://frontend-preload:applied')
+  expect(frame.style.visibility).toBe('visible')
   await act(async () => {
     await vi.advanceTimersByTimeAsync(9000)
   })
@@ -199,7 +201,7 @@ it.each([
   expect(store.harness.serviceRunning).toBe(true)
 })
 
-it('diagnoses remote frame visibility across local health and error transitions without changing it', async () => {
+it('diagnoses remote frame visibility across local health and error transitions without hiding the remote document', async () => {
   render(<Iframe iframeRef={createRef()} srcOverride="https://example.test/?token=secret" />)
   expect(screen.getByTestId('dsh-shell-iframe').getAttribute('src')).toBe('https://example.test/?token=secret')
   expect(screen.queryByRole('status')).toBeNull()
@@ -214,13 +216,14 @@ it('diagnoses remote frame visibility across local health and error transitions 
     store.harness.serviceHealthy = true
     store.harness.markIframeError()
   })
-  expect(frame.style.visibility).toBe('hidden')
+  // 本地诊断标记不能藏远端文档：远端这里没有错误覆盖层，藏掉只剩一整片空白。
+  expect(frame.style.visibility).toBe('visible')
   expect(screen.queryByText('ui.iframe_error')).toBeNull()
   expect(console.warn).toHaveBeenLastCalledWith('[Iframe] view', expect.objectContaining({
     branch: 'remote-frame',
     serviceHealthy: true,
     iframeError: true,
-    iframeHidden: true,
+    iframeHidden: false,
   }))
   expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('secret')
 })
