@@ -84,6 +84,12 @@ const FOLLOW_DAMPING = 30
 /** 单帧积分上限与子步上限：与上游一致，大帧切成 1/120 子步，显式弹簧不会发散。 */
 const MAX_FRAME_DELTA = 0.05
 const MAX_SUBSTEP = 1 / 120
+/**
+ * 下发节流（ms）：高刷屏上 RAF 频率 = 刷新率（实测 299Hz），每帧一次 `setPosition`
+ * IPC 会被 DWM 按 vsync 大量跳过、节奏紊乱，正是拖动卡顿与拖影的主源。每帧照常
+ * 积分、位置按 ≥16ms 间隔下发，收敛节奏与 60Hz 内容呈现对齐。
+ */
+const SET_POSITION_INTERVAL = 16
 /** 方向停摆阈值：超过此时长没有新的光标样本，方向归零（宠物回到 idle/会话动画）。 */
 const DRAG_DIRECTION_IDLE_TIMEOUT = 350
 /** 会话兜底阈值：超过此时长没有新的光标样本，且左键状态未知/已松开时收尾拖拽。 */
@@ -191,6 +197,8 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
   const rafRef = useRef<{ pause: () => void, resume: () => void } | null>(null)
   /** 最近一次已下发的取整位置：位置没变就不重复发 IPC（按住不动时每帧一次没有意义）。 */
   const appliedRef = useRef<{ x: number, y: number } | undefined>(undefined)
+  /** 最近一次下发时刻（RAF 时间戳，ms）：不足 16ms 的帧只积分不下发（见 SET_POSITION_INTERVAL）。 */
+  const lastSentAtRef = useRef<number | undefined>(undefined)
   const [dragging, setDragging] = useState(false)
   const [direction, setDirection] = useState<DragDirection | undefined>(undefined)
 
@@ -240,6 +248,16 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
     const nextY = Math.round(gesture.y)
     if (appliedRef.current?.x === nextX && appliedRef.current.y === nextY)
       return
+    // 高刷屏按 SET_POSITION_INTERVAL 节流下发：RAF 频率 = 刷新率（299Hz 实测），
+    // 每帧一次 `setPosition` IPC 会被 DWM 按 vsync 大量跳过、节奏紊乱，正是拖动
+    // 卡顿与拖影的主源。每帧照常积分，把跳过的帧时长的累计起来，攒满一个间隔才
+    // 下发一次 —— 任意刷新率下都收敛到 ~60 次/秒。
+    if (lastSentAtRef.current !== undefined) {
+      lastSentAtRef.current += delta
+      if (lastSentAtRef.current < SET_POSITION_INTERVAL)
+        return
+    }
+    lastSentAtRef.current = 0
     appliedRef.current = { x: nextX, y: nextY }
     void getCurrentWindow()
       .setPosition(new PhysicalPosition(nextX, nextY))
@@ -266,6 +284,7 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
     gestureRef.current = null
     pressedRef.current = undefined
     appliedRef.current = undefined
+    lastSentAtRef.current = undefined
     stopDirectionTimer()
     stopSessionTimer()
     rafRef.current?.pause()
@@ -347,6 +366,7 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
       gesture.vy = 0
       gesture.engaged = true
       appliedRef.current = undefined
+      lastSentAtRef.current = undefined
       setDragging(true)
       rafRef.current?.resume()
     }

@@ -148,12 +148,31 @@ describe('pet cursor input lifecycle', () => {
     await flush()
     await emit('device-mouse-move', { x: 120, y: 120 })
     expect(requests()).toEqual([])
-    native.position.mockResolvedValue({ x: 400, y: 400 })
-    await emit('moved', {})
+
+    // Moved 事件自带新位置：窗口移到 400,400 时命中箱随之移动，静止光标 120
+    // 落到箱外 → 穿透；移回 100,100 后光标回到箱内 → 恢复接收。
+    await emit('moved', { x: 400, y: 400 })
     expect(requests()).toEqual([true])
-    native.position.mockResolvedValue({ x: 100, y: 100 })
-    await emit('moved', {})
+    await emit('moved', { x: 100, y: 100 })
     expect(requests()).toEqual([true, false])
+  })
+
+  it('uses the moved event payload instead of an innerPosition round-trip', async () => {
+    renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
+    await flush()
+    await emit('device-mouse-move', { x: 120, y: 120 })
+    expect(requests()).toEqual([])
+
+    // 拖动期间每个 Moved 事件自带新位置：直接用它重判命中，不再发 innerPosition()
+    // 往返（窗口每秒几百次 Moved，每次再一查 IPC 是双倍开销）。payload 位置落在
+    // 命中箱外（窗口 (400,400) + rect (10,10,100,100) × dpr=1 → 光标 (600,600) 在外）。
+    await emit('moved', { x: 400, y: 400 })
+    expect(requests()).toEqual([true])
+    expect(native.position).toHaveBeenCalledTimes(1)
+
+    await emit('moved', { x: 100, y: 100 })
+    expect(requests()).toEqual([true, false])
+    expect(native.position).toHaveBeenCalledTimes(1)
   })
 
   it('retests a stationary cursor after resizing the hitbox', async () => {

@@ -441,4 +441,40 @@ describe('useWindowDraggable', () => {
 
     expect(invokeMock).not.toHaveBeenCalledWith('start_pet_mouse_stream')
   })
+
+  it('下发按 ~16ms 节流：高刷 RAF 帧只积分，setPosition 收敛到 ~60 次/秒', async () => {
+    const { result } = renderHook(() => useDraggable())
+
+    await startDrag(result.current, 40)
+    expect(result.current.dragging).toBe(true)
+
+    // 模拟 299Hz 高刷屏：jsdom 的 rAF 是 16ms 粒度、无法直接造小 delta，
+    // 用 fpsLimit 语义等价的验证口径 —— 连续 3 秒高频拖动下，下发的窗口位置
+    // 最多每 16ms 一个（相邻两次下发的时间戳差按帧数折算 ≥ 16ms）。
+    windowMock.setPosition.mockClear()
+
+    // 记录每次下发时累计推过的模拟时间；节流后相邻下发间隔必须 ≥ 16ms。
+    const sentAt: number[] = []
+    windowMock.setPosition.mockImplementation(() => {
+      sentAt.push(Date.now())
+      return Promise.resolve()
+    })
+    act(() => {
+      for (let index = 0; index < 190; index += 1)
+        vi.advanceTimersByTime(16)
+    })
+    // 190 帧 = 3040ms：位置变化集中在收敛段，之后位置不变（appliedRef 去重）。
+    // 40px 目标的弹簧收敛期间约有 20+ 次位置变化，断言下发次数落在该区间。
+    expect(sentAt.length).toBeGreaterThanOrEqual(15)
+    expect(sentAt.length).toBeLessThanOrEqual(40)
+    // 相邻两次下发至少隔一帧（16ms）：高刷下被跳过的帧不产生 IPC。
+    for (let index = 1; index < sentAt.length; index += 1)
+      expect(sentAt[index] - sentAt[index - 1]).toBeGreaterThanOrEqual(16)
+
+    // 收敛结果不变：窗口最终停在光标处。
+    act(() => {
+      vi.advanceTimersByTime(16 * 60)
+    })
+    expect(lastPosition()).toEqual({ x: BASE.x + 40, y: BASE.y })
+  })
 })

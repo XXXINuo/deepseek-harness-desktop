@@ -293,11 +293,13 @@ pub fn start_pet_mouse_stream(window: WebviewWindow, state: State<'_, PetMouseSt
                     .unwrap_or_else(|error| error.into_inner())
                     .clone();
                 if let Some(target) = target {
+                    // emit_to 只投递桌宠窗口：`emit` 会遍历所有 webview（含重内容的
+                    // 主窗口），60Hz 光标流对它们是纯噪音，每 16ms 白白反序列化一份。
                     if let Some(pos) = position {
-                        let _ = target.emit(PET_MOUSE_MOVE_EVENT, pos);
+                        let _ = target.emit_to(crate::desktop::pet::PET_WINDOW_LABEL, PET_MOUSE_MOVE_EVENT, pos);
                     }
                     if let Some(pressed) = button {
-                        let _ = target.emit(PET_MOUSE_BUTTON_EVENT, MouseButtonState { pressed });
+                        let _ = target.emit_to(crate::desktop::pet::PET_WINDOW_LABEL, PET_MOUSE_BUTTON_EVENT, MouseButtonState { pressed });
                     }
                 }
             }

@@ -159,7 +159,12 @@ export function useOmitIgnoreCursorEvents(elementRef: RefObject<HTMLElement | nu
     }).catch(error => console.warn('[pet] PET_INPUT_VISIBILITY_FAILED:', error))
 
     const subscriptions = [
-      appWindow.onMoved(() => { void refreshWindowPosition() }),
+      // Moved 事件自带新位置（桌宠窗口无装饰，outer == inner）：直接采用，拖动期间
+      // 每秒数百个 Moved 不再各自触发一次 innerPosition() IPC 往返。
+      appWindow.onMoved(({ payload }) => {
+        windowPosition = payload
+        refreshFromState()
+      }),
       appWindow.onResized(() => { void refreshWindowPosition() }),
       listen<RustPetStatus>('pet://status', ({ payload }) => {
         visibilityRevision++
