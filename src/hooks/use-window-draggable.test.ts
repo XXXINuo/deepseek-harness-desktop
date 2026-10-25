@@ -477,13 +477,17 @@ describe('useWindowDraggable', () => {
     await startDrag(result.current, 40)
     frames(2)
     let resolve!: () => void
-    windowMock.setPosition.mockImplementationOnce(() => new Promise<void>((done) => { resolve = done }))
+    windowMock.setPosition.mockImplementationOnce(() => new Promise<void>((done) => {
+      resolve = done
+    }))
     windowMock.setPosition.mockClear()
     release(result.current)
 
     expect(windowMock.setPosition).toHaveBeenCalledExactlyOnceWith({ x: 0, y: 0 })
     expect(invokeMock).not.toHaveBeenCalledWith('persist_pet_window_position')
-    await act(async () => { resolve() })
+    await act(async () => {
+      resolve()
+    })
     expect(invokeMock).toHaveBeenCalledExactlyOnceWith('persist_pet_window_position')
   })
 
@@ -499,16 +503,24 @@ describe('useWindowDraggable', () => {
 
   it('松手冲刷被 16ms 节流跳过的末帧位置', async () => {
     let callback!: FrameRequestCallback
-    vi.stubGlobal('requestAnimationFrame', (next: FrameRequestCallback) => { callback = next; return 1 })
+    vi.stubGlobal('requestAnimationFrame', (next: FrameRequestCallback) => {
+      callback = next
+      return 1
+    })
     vi.stubGlobal('cancelAnimationFrame', () => {})
     const clampPosition = vi.fn(() => ({ x: 1001, y: 501 }))
     const { result } = renderHook(() => useDraggable({ clampPosition }))
     await startDrag(result.current, 40)
-    act(() => { callback(4); callback(8) })
+    act(() => {
+      callback(4)
+      callback(8)
+    })
     expect(windowMock.setPosition).toHaveBeenCalledExactlyOnceWith({ x: 1001, y: 501 })
 
     clampPosition.mockReturnValue({ x: 1002, y: 502 })
-    act(() => { callback(12) })
+    act(() => {
+      callback(12)
+    })
     expect(windowMock.setPosition).toHaveBeenCalledTimes(1)
     release(result.current)
     await settlePromises()

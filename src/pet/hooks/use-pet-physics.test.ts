@@ -246,15 +246,21 @@ describe('usePetPhysics', () => {
     mocks.window.outerPosition.mockResolvedValue({ x: 500, y: 980, toLogical: () => ({ x: 500, y: 980 }) })
     const pet = createPet()
     const { result } = renderHook(() => usePetPhysics(pet.ref, 'codex', true))
-    act(() => { result.current.onFling(flingEvent(0, 0)) })
+    act(() => {
+      result.current.onFling(flingEvent(0, 0))
+    })
     await act(async () => {})
     let resolve!: () => void
-    mocks.window.setPosition.mockImplementationOnce(() => new Promise<void>((done) => { resolve = done }))
+    mocks.window.setPosition.mockImplementationOnce(() => new Promise<void>((done) => {
+      resolve = done
+    }))
 
     advanceFrames(2)
     expect(mocks.window.setPosition).toHaveBeenCalledExactlyOnceWith({ x: 500, y: 980 })
     expect(mocks.invoke).not.toHaveBeenCalled()
-    await act(async () => { resolve() })
+    await act(async () => {
+      resolve()
+    })
     expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith('persist_pet_window_position')
   })
 
