@@ -71,7 +71,7 @@ describe('pet dragging follows the pointer (upstream spring feel)', () => {
     expect(hook).toContain('clampRef.current({ x: gesture.x, y: gesture.y })')
     expect(readSource('src/pet/hooks/use-pet-window-clamp.ts')).toContain('bodyBounds(geometry, stage.width, stage.height, dsh)')
     // 收尾只落盘：整窗夹取会把贴边松手的宠物推开一段（透明留白的宽度）。
-    expect(hook).toContain('void invoke(\'persist_pet_window_position\').catch(() => {})')
+    expect(hook).toContain('.then(() => invoke(\'persist_pet_window_position\'))')
     expect(hook).not.toContain('invoke(\'move_pet_window\'')
   })
 })

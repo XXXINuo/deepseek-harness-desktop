@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
   const movedHandlers: Array<(event: { payload: { x: number, y: number } }) => void> = []
   return {
     movedHandlers,
+    invoke: vi.fn<() => Promise<void>>(),
     monitor: vi.fn<() => Promise<unknown>>(),
     window: {
       outerPosition: vi.fn<() => Promise<unknown>>(),
@@ -26,6 +27,8 @@ const mocks = vi.hoisted(() => {
     },
   }
 })
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }))
 
 vi.mock('@tauri-apps/api/window', () => ({
   PhysicalPosition: class {
@@ -119,6 +122,7 @@ describe('usePetPhysics', () => {
       ...WINDOW_POSITION,
       toLogical: () => ({ ...WINDOW_POSITION }),
     })
+    mocks.invoke.mockResolvedValue(undefined)
     mocks.window.setPosition.mockResolvedValue(undefined)
     mocks.window.onMoved.mockImplementation((handler) => {
       mocks.movedHandlers.push(handler)
@@ -236,6 +240,22 @@ describe('usePetPhysics', () => {
     expect(pet.squash.mock.calls[0][0] as number).toBeGreaterThan(0)
     const positions = mocks.window.setPosition.mock.calls.map(([position]) => position as { x: number, y: number })
     expect(Math.max(...positions.map(position => position.y))).toBeLessThanOrEqual(980)
+  })
+
+  it('飞行落地后等待最后一次窗口移动完成才持久化位置', async () => {
+    mocks.window.outerPosition.mockResolvedValue({ x: 500, y: 980, toLogical: () => ({ x: 500, y: 980 }) })
+    const pet = createPet()
+    const { result } = renderHook(() => usePetPhysics(pet.ref, 'codex', true))
+    act(() => { result.current.onFling(flingEvent(0, 0)) })
+    await act(async () => {})
+    let resolve!: () => void
+    mocks.window.setPosition.mockImplementationOnce(() => new Promise<void>((done) => { resolve = done }))
+
+    advanceFrames(2)
+    expect(mocks.window.setPosition).toHaveBeenCalledExactlyOnceWith({ x: 500, y: 980 })
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    await act(async () => { resolve() })
+    expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith('persist_pet_window_position')
   })
 
   it('飞行中在别处点击（全屏左键按下）不停窗口，也不会被当成甩动', async () => {

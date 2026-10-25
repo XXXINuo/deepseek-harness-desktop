@@ -31,7 +31,7 @@
 </p>
 
 <p align="center">
-  <samp><a href="https://dshtauri.mintlify.site/en/installation">Descargar</a> · <a href="./README.en.md">English</a> · <strong>Español</strong> · <a href="./README.ko.md">한국어</a> · <a href="https://dshtauri.mintlify.site">Documentación</a> · <a href="./README.md">中文</a></samp>
+  <samp><a href="https://dshtauri.mintlify.site/en/installation">Descargar</a> · <a href="./README.en.md">English</a> · <strong>Español</strong> · <a href="./README.ru.md">Русский</a> · <a href="./README.ko.md">한국어</a> · <a href="https://dshtauri.mintlify.site">Documentación</a> · <a href="./README.md">中文</a></samp>
 </p>
 
 <p align="center">
@@ -100,6 +100,13 @@ En macOS también podés instalar por Homebrew:
 
 ```bash
 brew install dsh-tauri/desktop/deepseek-harness
+```
+
+En Fedora 43+ (x64 / ARM64) podés instalar desde el repositorio Copr. Las actualizaciones llegan con `dnf upgrade` y la actualización dentro de la app queda desactivada. Para versiones preliminares instalá `dsh-tauri-beta` (es incompatible con `dsh-tauri`; cambiá con `sudo dnf swap dsh-tauri dsh-tauri-beta`):
+
+```bash
+sudo dnf copr enable fairyband/dsh-tauri
+sudo dnf install dsh-tauri        # estable
 ```
 
 - Los instaladores normales necesitan red en el primer arranque para descargar los componentes faltantes del runtime y del núcleo. Las funciones Git necesitan un Git disponible.

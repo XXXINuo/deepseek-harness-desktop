@@ -73,7 +73,15 @@ export function useOmitIgnoreCursorEvents(elementRef: RefObject<HTMLElement | nu
       const element = elementRef.current
       if (disposed || element === null)
         return
-      const { x, y, width, height } = element.getBoundingClientRect()
+      // 按 `devicePixelRatio` 换成设备像素再交给 Rust（Rust 再按 GTK 缩放系数换回 GTK 坐标）：
+      // KDE 分数缩放 + XWayland 下页面是 1.5、GTK 是 1，直接传 CSS 坐标会让输入形状
+      // 缩成 2/3 并偏向左上角，宠物中间点不到。
+      const scale = globalThis.devicePixelRatio || 1
+      const bounds = element.getBoundingClientRect()
+      const x = bounds.x * scale
+      const y = bounds.y * scale
+      const width = bounds.width * scale
+      const height = bounds.height * scale
       const rect = { x, y, width, height }
       if (appliedRegion !== undefined && appliedRegion.x === x && appliedRegion.y === y && appliedRegion.width === width && appliedRegion.height === height)
         return
@@ -159,10 +167,6 @@ export function useOmitIgnoreCursorEvents(elementRef: RefObject<HTMLElement | nu
     }).catch(error => console.warn('[pet] PET_INPUT_VISIBILITY_FAILED:', error))
 
     const subscriptions = [
-      // Moved 事件自带新位置（桌宠窗口无装饰，outer == inner）：直接采用，拖动期间
-      // 每秒数百个 Moved 不再各自触发一次 innerPosition() IPC 往返。moved 同时推进
-      // geometryRevision：让更早发起、此刻还在途的 innerPosition() 查询在落回时
-      // 因 revision 失配被丢弃，不致用旧位置覆盖 moved 给的新位置。
       appWindow.onMoved(({ payload }) => {
         geometryRevision++
         windowPosition = payload

@@ -35,6 +35,13 @@ describe('pet window close (destroy, not hide)', () => {
     expect(body).toContain('PET_WINDOW_DESTROY_FAILED')
   })
 
+  it('flushes the live pet position before destroying its window', () => {
+    const body = functionBody(petWindow, 'set_pet_window_visible')
+    const persist = body.indexOf('persist_pet_window_position(app)')
+    expect(persist).toBeGreaterThan(-1)
+    expect(persist).toBeLessThan(body.indexOf('.destroy()'))
+  })
+
   it('never creates a hidden pet window while the pet is disabled', () => {
     const body = functionBody(petWindow, 'init_pet_window')
 

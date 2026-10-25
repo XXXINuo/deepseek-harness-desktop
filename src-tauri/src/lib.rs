@@ -65,6 +65,15 @@ pub fn run() -> Result<(), String> {
         // 同上，logger::init() 尚未执行，只能用 eprintln
         eprintln!("[wayland] set GDK_BACKEND=x11 so the pet window can stay on top (issue #649)");
     }
+    // 桌宠 VP9-alpha 视频改走软件解码（见 `vpx_va_rank_override`）。必须在任何 WebView
+    // 建出之前设置：WebKitWebProcess 启动时继承环境，GStreamer 初始化时读一次。
+    #[cfg(target_os = "linux")]
+    if let Some(ranks) =
+        vpx_va_rank_override(&std::env::var("GST_PLUGIN_FEATURE_RANK").unwrap_or_default())
+    {
+        std::env::set_var("GST_PLUGIN_FEATURE_RANK", ranks);
+        eprintln!("[gstreamer] disabled VA-API VP8/VP9 decoders for WebKitGTK video");
+    }
     // 初始化日志系统
     logger::init();
     log::info!(
@@ -215,6 +224,58 @@ pub(crate) fn should_force_xwayland(
         && !display.is_empty()
 }
 
+/// 把 GStreamer VA-API 的 VP8/VP9 解码器（含 alpha 解码 bin）降为 NONE 后的
+/// `GST_PLUGIN_FEATURE_RANK`；无需改动时返回 `None`。
+///
+/// 桌宠素材是 VP9-alpha `.webm`。WebKitGTK 把解码交给系统 GStreamer，
+/// `vavp9alphadecodebin`（rank 267）压过软件 `vp9alphadecodebin`（266）抢到解码；
+/// Intel iHD 驱动在把 VA surface 映射给 GL 上传时（`gst_va_surface_copy` →
+/// `KernelDll_AllocateStates`）SIGSEGV，WebKitWebProcess 整个崩掉，桌宠随之消失。
+/// 只关 `vavp9dec` 不够：alpha bin 按名字直接建内部解码器，不看它的 rank。
+/// Windows（WebView2 自带 libvpx）与 macOS（HEVC-alpha 走 AVFoundation）不经过这条路径。
+///
+/// 只动 VP8/VP9：宠物视频很小，软件解码开销可以忽略；H.264 / AV1 等硬解不受影响。
+/// 非默认显卡的特性名带设备节点（`varenderD129vp9dec`），按常见节点范围一并列出，
+/// 不存在的特性名 GStreamer 直接忽略。用户在变量里已写过的特性保持权威，不覆盖。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn vpx_va_rank_override(existing: &str) -> Option<String> {
+    let mut features = vec![
+        "vavp9dec".to_string(),
+        "vavp8dec".to_string(),
+        "vavp9alphadecodebin".to_string(),
+        "vavp8alphadecodebin".to_string(),
+        // 旧版 gstreamer-vaapi 插件
+        "vaapivp9dec".to_string(),
+        "vaapivp8dec".to_string(),
+    ];
+    for node in 128..136 {
+        features.push(format!("varenderD{node}vp9dec"));
+        features.push(format!("varenderD{node}vp8dec"));
+        features.push(format!("vavp9renderD{node}alphadecodebin"));
+        features.push(format!("vavp8renderD{node}alphadecodebin"));
+    }
+    let specified: Vec<&str> = existing
+        .split(',')
+        .filter_map(|entry| entry.split(':').next())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .collect();
+    let additions: Vec<String> = features
+        .into_iter()
+        .filter(|name| !specified.contains(&name.as_str()))
+        .map(|name| format!("{name}:NONE"))
+        .collect();
+    if additions.is_empty() {
+        return None;
+    }
+    let existing = existing.trim().trim_end_matches(',');
+    Some(if existing.is_empty() {
+        additions.join(",")
+    } else {
+        format!("{existing},{}", additions.join(","))
+    })
+}
+
 /// [`pet_overlay_supported`] 的环境变量读取版本，供查询命令与建窗路径共用。
 pub(crate) fn pet_overlay_supported_env() -> bool {
     pet_overlay_supported(
@@ -272,5 +333,29 @@ mod tests {
         assert!(!should_force_xwayland(true, "", "", ":0"));
         // macOS / Windows：三个变量都为空，GDK_BACKEND 在那里也无意义。
         assert!(!should_force_xwayland(true, "", "", ""));
+    }
+
+    #[test]
+    fn vpx_va_rank_override_disables_alpha_bins_and_keeps_user_entries() {
+        let ranks = vpx_va_rank_override("").unwrap();
+        let entries: Vec<&str> = ranks.split(',').collect();
+        // 只关 vavp9dec 不够：真正崩溃的路径是 alpha 解码 bin。
+        assert!(entries.contains(&"vavp9alphadecodebin:NONE"));
+        assert!(entries.contains(&"vavp9dec:NONE"));
+        // 第二块显卡的特性名带设备节点。
+        assert!(entries.contains(&"vavp9renderD129alphadecodebin:NONE"));
+        assert!(entries.contains(&"varenderD129vp9dec:NONE"));
+        // 其他编解码器不动。
+        assert!(!ranks.contains("h264"));
+
+        // 用户已有的条目原样保留在前面，且对同名特性保持权威。
+        let ranks = vpx_va_rank_override("vavp9dec:PRIMARY,foo:MAX").unwrap();
+        assert!(ranks.starts_with("vavp9dec:PRIMARY,foo:MAX,"));
+        assert!(!ranks.contains("vavp9dec:NONE"));
+        assert!(ranks.contains("vavp9alphadecodebin:NONE"));
+
+        // 已全部写过：不改环境。
+        let full = vpx_va_rank_override("").unwrap();
+        assert_eq!(vpx_va_rank_override(&full), None);
     }
 }

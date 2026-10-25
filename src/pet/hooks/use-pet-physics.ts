@@ -1,6 +1,7 @@
 import type { PetPhysicsEvent, PetRef, PhysicsParams } from 'dsh-pet-component'
 import type { DragSample, ThrowBounds, ThrowState } from './use-pet-physics.helpers'
 import { useRafFn } from '@reause/core'
+import { invoke } from '@tauri-apps/api/core'
 import { currentMonitor, getCurrentWindow, PhysicalPosition } from '@tauri-apps/api/window'
 import { useEffect, useRef } from 'react'
 import { useListen } from '@/hooks/use-listen'
@@ -63,6 +64,7 @@ export function usePetPhysics(pet: PetRef, kind: 'dsh' | 'codex' | undefined, th
         Math.round((next.x - flight.originX) * flight.scale),
         Math.round((next.y - flight.originY) * flight.scale),
       ))
+      .then(() => next.atRest ? invoke('persist_pet_window_position') : undefined)
       .catch(() => {})
 
     // 落地 Q 弹复用组件的挤压动画；力度是撞击瞬间的下坠速度（积分前）。

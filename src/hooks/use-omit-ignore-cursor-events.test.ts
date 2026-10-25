@@ -108,6 +108,19 @@ describe('pet cursor input lifecycle', () => {
     expect(native.invoke).toHaveBeenCalledWith('start_pet_mouse_stream')
   })
 
+  it('sends the linux input region in device pixels under a fractional device pixel ratio', async () => {
+    native.os = 'linux'
+    vi.stubGlobal('devicePixelRatio', 1.5)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
+    await flush()
+    const regions = native.invoke.mock.calls.filter(([command]) => command === 'set_pet_input_region')
+    expect(regions).toEqual([['set_pet_input_region', { rect: { x: 15, y: 15, width: 150, height: 150 } }]])
+  })
+
   it('applies outside and inside hit tests without duplicate native writes', async () => {
     renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
     await flush()
@@ -149,8 +162,6 @@ describe('pet cursor input lifecycle', () => {
     await emit('device-mouse-move', { x: 120, y: 120 })
     expect(requests()).toEqual([])
 
-    // Moved 事件自带新位置：窗口移到 400,400 时命中箱随之移动，静止光标 120
-    // 落到箱外 → 穿透；移回 100,100 后光标回到箱内 → 恢复接收。
     await emit('moved', { x: 400, y: 400 })
     expect(requests()).toEqual([true])
     await emit('moved', { x: 100, y: 100 })
@@ -163,8 +174,6 @@ describe('pet cursor input lifecycle', () => {
     await emit('device-mouse-move', { x: 120, y: 120 })
     expect(requests()).toEqual([])
 
-    // 拖动期间每个 Moved 事件自带新位置：直接用它重判命中，不再发 innerPosition()
-    // 往返（窗口每秒几百次 Moved，每次再一查 IPC 是双倍开销）。
     await emit('moved', { x: 400, y: 400 })
     expect(requests()).toEqual([true])
     expect(native.position).toHaveBeenCalledTimes(1)
@@ -175,9 +184,6 @@ describe('pet cursor input lifecycle', () => {
   })
 
   it('discards an in-flight innerPosition result that lands after a moved event', async () => {
-    // 在途查询竞态：innerPosition() 先发起、moved 后到、查询后落回 ——
-    // 若 moved 不推进 revision，落回的旧位置（100,100）会覆盖 moved 给的新位置。
-    // mount 与「首个 cursor 样本」各发起一次 innerPosition，两路都挂起。
     const mountPosition = deferred<{ x: number, y: number }>()
     const cursorPosition = deferred<{ x: number, y: number }>()
     native.position.mockReturnValueOnce(mountPosition.promise).mockReturnValueOnce(cursorPosition.promise)
@@ -186,12 +192,9 @@ describe('pet cursor input lifecycle', () => {
     await emit('device-mouse-move', { x: 120, y: 120 })
     expect(requests()).toEqual([])
 
-    // moved 到 400,400：静止光标 120 落到箱 (410..510) 外 → 穿透。
     await emit('moved', { x: 400, y: 400 })
     expect(requests()).toEqual([true])
 
-    // 在途查询此时才落回（旧位置 100,100）：必须被丢弃 —— 否则箱回到 (110..210)，
-    // 光标 120 被误判在箱内 → 恢复接收，窗口移动停止后命中判定错位。
     await act(async () => {
       mountPosition.resolve({ x: 100, y: 100 })
       cursorPosition.resolve({ x: 100, y: 100 })
