@@ -102,8 +102,6 @@ pub fn save_pet_window_position<R: Runtime>(app: &AppHandle<R>, position: &PetWi
 ///
 /// 拖动期间每个 `Moved` 都会进到这里（高刷屏上每秒数百次），而 `store.save()` 是
 /// 同步整文件写盘 —— 逐事件落盘会以同等频率阻塞主线程，正是拖动卡顿的放大器。
-/// 实际写盘由 `save_pet_window_position_throttled` 按 500ms 间隔收敛，拖拽收尾
-/// 时前端还会调 `persist_pet_window_position` 立即落盘（见 `use-window-draggable.ts`）。
 pub fn save_pet_window_geometry<R: Runtime>(window: &Window<R>) {
     // 窗口未显示或正在全屏时采样到的可能是瞬态/无意义的位置，跳过。
     if !window.is_visible().unwrap_or(false) {
@@ -125,15 +123,13 @@ pub fn save_pet_window_geometry<R: Runtime>(window: &Window<R>) {
 /// 几何落盘节流间隔：拖动中每秒数百个 Moved，写盘压到 ~2 次/秒足够。
 const PET_GEOMETRY_SAVE_INTERVAL: Duration = Duration::from_millis(500);
 
-/// 桌宠几何写盘的进程级节流状态：上次落盘时刻 + 节流窗口内最新的待写位置。
+/// 进程级落盘节流状态：上次写盘时刻 + 节流窗口内最新的待写位置。
 ///
-/// 位置用锁内 Option 暂存：节流窗口内的后续 Moved 只覆盖暂存值（None 表示节流
-/// 窗口外，立即写盘并开启新窗口）；拖拽收尾的 `persist_pet_window_position` 落盘
-/// 后会清掉挂起值，避免后台线程在下个间隔用旧值覆盖刚落盘的位置。崩溃场景最多
-/// 丢最后一次节流间隔（500ms）内的位置，可接受。
+/// 收尾的 `persist_pet_window_position` 落盘后清掉挂起值，避免下个间隔用旧值
+/// 覆盖刚落盘的位置；崩溃最多丢一个节流间隔内的位置。
 static PET_GEOMETRY_SAVE: Mutex<Option<(Instant, PetWindowPosition)>> = Mutex::new(None);
 
-/// 节流版几何落盘：内存即时更新，磁盘写入按 `PET_GEOMETRY_SAVE_INTERVAL` 收敛。
+/// 节流版几何落盘：节流窗口内只更新暂存值，间隔到了才真正写盘。
 fn save_pet_window_position_throttled<R: Runtime>(app: &AppHandle<R>, position: &PetWindowPosition) {
     let mut pending = PET_GEOMETRY_SAVE
         .lock()

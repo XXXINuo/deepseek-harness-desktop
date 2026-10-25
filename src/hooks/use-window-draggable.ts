@@ -85,9 +85,8 @@ const FOLLOW_DAMPING = 30
 const MAX_FRAME_DELTA = 0.05
 const MAX_SUBSTEP = 1 / 120
 /**
- * 下发节流（ms）：高刷屏上 RAF 频率 = 刷新率（实测 299Hz），每帧一次 `setPosition`
- * IPC 会被 DWM 按 vsync 大量跳过、节奏紊乱，正是拖动卡顿与拖影的主源。每帧照常
- * 积分、位置按 ≥16ms 间隔下发，收敛节奏与 60Hz 内容呈现对齐。
+ * 下发节流（ms）：RAF 频率 = 刷新率（299Hz 实测），每帧一次 `setPosition` IPC
+ * 会被 DWM 按 vsync 大量跳过、节奏紊乱，正是拖动卡顿与拖影的主源。
  */
 const SET_POSITION_INTERVAL = 16
 /** 方向停摆阈值：超过此时长没有新的光标样本，方向归零（宠物回到 idle/会话动画）。 */
@@ -197,7 +196,7 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
   const rafRef = useRef<{ pause: () => void, resume: () => void } | null>(null)
   /** 最近一次已下发的取整位置：位置没变就不重复发 IPC（按住不动时每帧一次没有意义）。 */
   const appliedRef = useRef<{ x: number, y: number } | undefined>(undefined)
-  /** 最近一次下发时刻（RAF 时间戳，ms）：不足 16ms 的帧只积分不下发（见 SET_POSITION_INTERVAL）。 */
+  /** 距上次下发的累计帧时长（ms）：攒满 SET_POSITION_INTERVAL 才下发。 */
   const lastSentAtRef = useRef<number | undefined>(undefined)
   const [dragging, setDragging] = useState(false)
   const [direction, setDirection] = useState<DragDirection | undefined>(undefined)
@@ -248,10 +247,8 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
     const nextY = Math.round(gesture.y)
     if (appliedRef.current?.x === nextX && appliedRef.current.y === nextY)
       return
-    // 高刷屏按 SET_POSITION_INTERVAL 节流下发：RAF 频率 = 刷新率（299Hz 实测），
-    // 每帧一次 `setPosition` IPC 会被 DWM 按 vsync 大量跳过、节奏紊乱，正是拖动
-    // 卡顿与拖影的主源。每帧照常积分，把跳过的帧时长的累计起来，攒满一个间隔才
-    // 下发一次 —— 任意刷新率下都收敛到 ~60 次/秒。
+    // 高刷屏按 SET_POSITION_INTERVAL 节流：跳过帧的时长累计起来，攒满一个间隔
+    // 才下发一次；末帧的位置由 endDrag 冲刷，不会丢。
     if (lastSentAtRef.current !== undefined) {
       lastSentAtRef.current += delta
       if (lastSentAtRef.current < SET_POSITION_INTERVAL)
@@ -295,6 +292,16 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
       onReleaseRef.current?.()
     }
     if (gesture?.engaged === true) {
+      // 松手可能落在被节流跳过的帧之后：弹簧已积分出的最新位置还没下发过，
+      // 先冲刷一次再落盘，否则窗口停在旧位置而持久化的是从未送达的新位置。
+      const nextX = Math.round(gesture.x)
+      const nextY = Math.round(gesture.y)
+      if (nextX !== 0 || nextY !== 0) {
+        appliedRef.current = { x: nextX, y: nextY }
+        void getCurrentWindow()
+          .setPosition(new PhysicalPosition(nextX, nextY))
+          .catch(() => {})
+      }
       // 只落盘、不夹取：位置已由每帧的 `clampPosition` 保证在可见区域内，整窗夹取
       // 反而会把贴边松手的宠物推开一段（见 hook 文档「收尾写回」）。
       void invoke('persist_pet_window_position').catch(() => {})

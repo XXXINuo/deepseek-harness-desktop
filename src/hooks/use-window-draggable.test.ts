@@ -442,39 +442,58 @@ describe('useWindowDraggable', () => {
     expect(invokeMock).not.toHaveBeenCalledWith('start_pet_mouse_stream')
   })
 
-  it('下发按 ~16ms 节流：高刷 RAF 帧只积分，setPosition 收敛到 ~60 次/秒', async () => {
+  it('下发按 ~16ms 节流：亚 16ms 帧只积分不下发，下发数远少于帧数', async () => {
+    // jsdom 的 rAF 以 16ms 定时器驱动，造不出亚 16ms 帧；stub 全局 rAF 用可控
+    // 时间戳模拟 299Hz（delta≈3.3ms），节流实现的上限是 100ms/16ms = 7 次。
+    const rafTimestamp = { current: 0 }
+    const callbacks: Array<(ts: number) => void> = []
+    vi.stubGlobal('requestAnimationFrame', (cb: (ts: number) => void) => {
+      callbacks.push(cb)
+      return callbacks.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+
+    const { result } = renderHook(() => useDraggable())
+    await startDrag(result.current, 40)
+    expect(result.current.dragging).toBe(true)
+    windowMock.setPosition.mockClear()
+
+    act(() => {
+      for (let index = 0; index < 30; index += 1) {
+        rafTimestamp.current += 3.34
+        const pending = callbacks.splice(0)
+        for (const cb of pending)
+          cb(rafTimestamp.current)
+      }
+    })
+
+    expect(windowMock.setPosition.mock.calls.length).toBeLessThanOrEqual(7)
+    expect(windowMock.setPosition.mock.calls.length).toBeGreaterThanOrEqual(2)
+    vi.unstubAllGlobals()
+  })
+
+  it('松手落在节流跳过区间时冲刷末帧位置再落盘', async () => {
     const { result } = renderHook(() => useDraggable())
 
     await startDrag(result.current, 40)
     expect(result.current.dragging).toBe(true)
 
-    // 模拟 299Hz 高刷屏：jsdom 的 rAF 是 16ms 粒度、无法直接造小 delta，
-    // 用 fpsLimit 语义等价的验证口径 —— 连续 3 秒高频拖动下，下发的窗口位置
-    // 最多每 16ms 一个（相邻两次下发的时间戳差按帧数折算 ≥ 16ms）。
+    // 弹簧还在逼近目标的中途（未收敛）就松手：冲刷值必须落在「上次下发位置」
+    // 与「光标目标」之间，且 persist 照常调用。
+    frames(2)
     windowMock.setPosition.mockClear()
+    invokeMock.mockClear()
 
-    // 记录每次下发时累计推过的模拟时间；节流后相邻下发间隔必须 ≥ 16ms。
-    const sentAt: number[] = []
-    windowMock.setPosition.mockImplementation(() => {
-      sentAt.push(Date.now())
-      return Promise.resolve()
-    })
     act(() => {
-      for (let index = 0; index < 190; index += 1)
-        vi.advanceTimersByTime(16)
+      vi.advanceTimersByTime(16)
     })
-    // 190 帧 = 3040ms：位置变化集中在收敛段，之后位置不变（appliedRef 去重）。
-    // 40px 目标的弹簧收敛期间约有 20+ 次位置变化，断言下发次数落在该区间。
-    expect(sentAt.length).toBeGreaterThanOrEqual(15)
-    expect(sentAt.length).toBeLessThanOrEqual(40)
-    // 相邻两次下发至少隔一帧（16ms）：高刷下被跳过的帧不产生 IPC。
-    for (let index = 1; index < sentAt.length; index += 1)
-      expect(sentAt[index] - sentAt[index - 1]).toBeGreaterThanOrEqual(16)
+    release(result.current)
 
-    // 收敛结果不变：窗口最终停在光标处。
-    act(() => {
-      vi.advanceTimersByTime(16 * 60)
-    })
-    expect(lastPosition()).toEqual({ x: BASE.x + 40, y: BASE.y })
+    const sent = windowMock.setPosition.mock.calls.map(([p]) => p)
+    expect(sent.length).toBeGreaterThanOrEqual(1)
+    const last = sent.at(-1) as { x: number, y: number }
+    expect(last.x).toBeGreaterThan(1000)
+    expect(last.x).toBeLessThanOrEqual(BASE.x + 40)
+    expect(invokeMock).toHaveBeenCalledWith('persist_pet_window_position')
   })
 })

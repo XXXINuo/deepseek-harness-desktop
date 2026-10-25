@@ -160,8 +160,11 @@ export function useOmitIgnoreCursorEvents(elementRef: RefObject<HTMLElement | nu
 
     const subscriptions = [
       // Moved 事件自带新位置（桌宠窗口无装饰，outer == inner）：直接采用，拖动期间
-      // 每秒数百个 Moved 不再各自触发一次 innerPosition() IPC 往返。
+      // 每秒数百个 Moved 不再各自触发一次 innerPosition() IPC 往返。moved 同时推进
+      // geometryRevision：让更早发起、此刻还在途的 innerPosition() 查询在落回时
+      // 因 revision 失配被丢弃，不致用旧位置覆盖 moved 给的新位置。
       appWindow.onMoved(({ payload }) => {
+        geometryRevision++
         windowPosition = payload
         refreshFromState()
       }),
